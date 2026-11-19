@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>スマホのセンサを体験する</title>
+<style>
+:root{--bg:#000;--tile:#1c1c1e;--tile2:#2c2c2e;--text:#f5f5f7;--sub:#8e8e93;--blue:#0a84ff;--green:#30d158;--orange:#ff9f0a}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Hiragino Sans","Hiragino Kaku Gothic ProN","Noto Sans JP","Yu Gothic UI","Meiryo",sans-serif;
+  -webkit-font-smoothing:antialiased;-webkit-user-select:none;user-select:none}
+.app{max-width:520px;margin:0 auto;padding:14px 14px 28px;display:flex;flex-direction:column;gap:10px}
+header h1{font-size:22px;font-weight:700;margin:6px 2px 0}
+header p{margin:2px 2px 4px;font-size:13px;color:var(--sub)}
+.guide{background:var(--tile);border-radius:14px;padding:12px 14px;font-size:13px;line-height:1.65;color:#d1d1d6}
+.guide b{color:var(--text);font-weight:600}
+canvas{display:block;width:100%;aspect-ratio:1/1;border-radius:16px;background:var(--tile);touch-action:none}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.stat{background:var(--tile);border-radius:14px;padding:8px 6px;text-align:center}
+.stat .l{font-size:11px;color:var(--sub)}
+.stat .v{font-size:19px;font-weight:600;font-variant-numeric:tabular-nums}
+.btn{appearance:none;border:0;border-radius:14px;padding:14px;font:inherit;font-size:16px;font-weight:600;color:#fff;background:var(--blue);cursor:pointer}
+.msg{font-size:13px;color:var(--sub);text-align:center;min-height:1.4em}
+a{display:block;text-align:center;padding:14px;border-radius:14px;background:var(--tile);color:var(--blue);font-weight:600;font-size:15px;text-decoration:none}
+.hidden{display:none!important}
+.embed header,.embed .back{display:none}
+.embed .app{padding-top:58px}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>スマホのセンサを体験する</h1>
+    <p>あなたのスマホにも「傾きセンサ」が入っています</p>
+  </header>
+  <div class="guide">
+    スマホを<b>平らに持って、ゆっくり傾けて</b>みましょう。玉が転がります。<b>玉を中央の円に入れて3秒キープ</b>できたらクリアです。<br>
+    ドローンも同じ<b>加速度センサ・ジャイロセンサ</b>で自分の傾きを測り、傾いたら自動で直しています（姿勢制御）。
+  </div>
+  <button class="btn" id="enableBtn">センサをオンにする</button>
+  <div class="msg" id="msg"></div>
+  <canvas id="cv"></canvas>
+  <div class="stats">
+    <div class="stat"><div class="l">前後の傾き</div><div class="v" id="vB">0°</div></div>
+    <div class="stat"><div class="l">左右の傾き</div><div class="v" id="vG">0°</div></div>
+    <div class="stat"><div class="l">キープ時間</div><div class="v" id="vK">0.0 秒</div></div>
+  </div>
+  <a class="back" href="index.html">ドローンゲームにもどる</a>
+</div>
+<script>
+const cv = document.getElementById('cv'), c = cv.getContext('2d');
+const $ = id => document.getElementById(id);
+const FONT = '-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP","Yu Gothic UI","Meiryo",sans-serif';
+if (new URLSearchParams(location.search).get('embed')) document.body.classList.add('embed');
+let tiltB = 0, tiltG = 0;                       // 前後(beta)・左右(gamma) [度]
+let ball = {x: 0.75, y: 0.3, vx: 0, vy: 0};     // 0〜1 の座標
+let keep = 0, cleared = false, gotSensor = false;
+const GOAL_R = 0.09;
+
+// ===== センサ =====
+function onOrient(e) {
+  if (e.beta === null || e.gamma === null) return;
+  gotSensor = true;
+  tiltB = Math.max(-45, Math.min(45, e.beta));
+  tiltG = Math.max(-45, Math.min(45, e.gamma));
+}
+$('enableBtn').addEventListener('click', async () => {
+  try {
+    if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+      const r = await DeviceOrientationEvent.requestPermission();   // iPhone は許可が必要
+      if (r !== 'granted') { $('msg').textContent = 'センサの使用が許可されませんでした。'; return; }
+    }
+    window.addEventListener('deviceorientation', onOrient);
+    $('enableBtn').classList.add('hidden');
+    $('msg').textContent = 'スマホを傾けてみましょう。';
+    setTimeout(() => { if (!gotSensor) $('msg').textContent = 'センサが見つかりません。画面をドラッグすると傾きを再現できます。'; }, 1500);
+  } catch (err) {
+    $('msg').textContent = 'センサが使えません。画面をドラッグすると傾きを再現できます。';
+  }
+});
+
+// PC 用：ドラッグで傾きを再現
+let dragging = false;
+function setTiltFromPointer(e) {
+  const r = cv.getBoundingClientRect();
+  tiltG = ((e.clientX - r.left) / r.width - 0.5) * 90;
+  tiltB = ((e.clientY - r.top) / r.height - 0.5) * 90;
+}
+cv.addEventListener('pointerdown', e => { if (gotSensor) return; dragging = true; cv.setPointerCapture(e.pointerId); setTiltFromPointer(e); });
+cv.addEventListener('pointermove', e => { if (dragging) setTiltFromPointer(e); });
+cv.addEventListener('pointerup', () => { dragging = false; tiltB = 0; tiltG = 0; });
+
+// ===== 玉の動き =====
+function step(dt) {
+  const k = 1.6;
+  ball.vx += Math.sin(tiltG * Math.PI / 180) * k * dt;
+  ball.vy += Math.sin(tiltB * Math.PI / 180) * k * dt;
+  ball.vx *= 0.985; ball.vy *= 0.985;
+  ball.x += ball.vx * dt; ball.y += ball.vy * dt;
+  const dx = ball.x - 0.5, dy = ball.y - 0.5, d = Math.hypot(dx, dy), R = 0.44;
+  if (d > R) {
+    const nx = dx / d, ny = dy / d;
+    ball.x = 0.5 + nx * R; ball.y = 0.5 + ny * R;
+    const vn = ball.vx * nx + ball.vy * ny;
+    if (vn > 0) { ball.vx -= 1.5 * vn * nx; ball.vy -= 1.5 * vn * ny; }
+  }
+  if (Math.hypot(ball.x - 0.5, ball.y - 0.5) < GOAL_R - 0.03) { keep += dt; if (keep >= 3) cleared = true; }
+  else keep = 0;
+}
+
+function draw() {
+  const r = cv.getBoundingClientRect(), dpr = devicePixelRatio || 1;
+  if (cv.width !== Math.round(r.width * dpr)) { cv.width = Math.round(r.width * dpr); cv.height = Math.round(r.height * dpr); }
+  c.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const W = r.width, H = r.height;
+  c.fillStyle = '#1c1c1e'; c.fillRect(0, 0, W, H);
+  c.strokeStyle = '#3a3a3c'; c.lineWidth = 1;
+  for (const rr of [0.44, 0.3, 0.18]) { c.beginPath(); c.arc(W / 2, H / 2, rr * W, 0, Math.PI * 2); c.stroke(); }
+  c.beginPath(); c.moveTo(W / 2, H * 0.06); c.lineTo(W / 2, H * 0.94); c.moveTo(W * 0.06, H / 2); c.lineTo(W * 0.94, H / 2); c.stroke();
+  c.fillStyle = keep > 0 ? 'rgba(48,209,88,0.3)' : 'rgba(48,209,88,0.12)';
+  c.beginPath(); c.arc(W / 2, H / 2, GOAL_R * W, 0, Math.PI * 2); c.fill();
+  c.strokeStyle = '#30d158'; c.stroke();
+  const ax = W / 2 + tiltG / 45 * W * 0.3, ay = H / 2 + tiltB / 45 * H * 0.3;
+  c.strokeStyle = 'rgba(10,132,255,0.7)'; c.lineWidth = 2; c.lineCap = 'round';
+  c.beginPath(); c.moveTo(W / 2, H / 2); c.lineTo(ax, ay); c.stroke();
+  c.fillStyle = '#f5f5f7'; c.beginPath(); c.arc(ball.x * W, ball.y * H, 0.04 * W, 0, Math.PI * 2); c.fill();
+  c.textAlign = 'center';
+  if (cleared) {
+    c.fillStyle = '#f5f5f7'; c.font = `700 20px ${FONT}`; c.fillText('クリア', W / 2, H * 0.15);
+    c.fillStyle = '#8e8e93'; c.font = `400 12px ${FONT}`;
+    c.fillText('いまあなたは「目で見て、手で直す」', W / 2, H * 0.86);
+    c.fillText('フィードバック制御をしていました', W / 2, H * 0.86 + 17);
+  }
+  $('vB').textContent = Math.round(tiltB) + '°';
+  $('vG').textContent = Math.round(tiltG) + '°';
+  $('vK').textContent = keep.toFixed(1) + ' 秒';
+}
+
+let last = performance.now();
+function loop(now) {
+  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  step(dt); draw();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

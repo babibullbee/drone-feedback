@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>ドローンを浮かせよう｜フィードバック制御を体験する</title>
+<style>
+:root{
+  --bg:#000; --tile:#1c1c1e; --tile2:#2c2c2e; --sep:#38383a;
+  --text:#f5f5f7; --sub:#8e8e93; --blue:#0a84ff; --green:#30d158; --orange:#ff9f0a;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Hiragino Sans","Hiragino Kaku Gothic ProN","Noto Sans JP","Yu Gothic UI","Meiryo",sans-serif;
+  -webkit-font-smoothing:antialiased;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+.app{max-width:520px;margin:0 auto;padding:14px 14px 28px;display:flex;flex-direction:column;gap:10px}
+header h1{font-size:22px;font-weight:700;margin:6px 2px 0;letter-spacing:.01em}
+header p{margin:2px 2px 4px;font-size:13px;color:var(--sub)}
+.seg{display:grid;grid-template-columns:repeat(4,1fr);background:var(--tile);border-radius:10px;padding:2px;gap:2px}
+.tab{appearance:none;border:0;background:transparent;color:var(--text);font:inherit;font-size:13px;font-weight:600;padding:8px 0;border-radius:8px;cursor:pointer}
+.tab.active{background:#636366}
+.guide{background:var(--tile);border-radius:14px;padding:12px 14px;font-size:13px;line-height:1.65;color:#d1d1d6}
+.guide b{color:var(--text);font-weight:600}
+canvas{display:block;width:100%;border-radius:16px;background:#000;touch-action:none}
+#sky{aspect-ratio:4/3.3}
+#graph{aspect-ratio:4/1.35}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.stat{background:var(--tile);border-radius:14px;padding:8px 6px;text-align:center}
+.stat .l{font-size:11px;color:var(--sub)}
+.stat .v{font-size:19px;font-weight:600;font-variant-numeric:tabular-nums;margin-top:1px}
+.think{background:var(--tile);border-radius:14px;padding:9px 12px;font-size:13px;text-align:center;color:#d1d1d6;font-variant-numeric:tabular-nums}
+.think b{color:var(--text)}
+.row{display:flex;gap:8px}
+.btn{flex:1;appearance:none;border:0;border-radius:14px;padding:13px 6px;font:inherit;font-size:15px;font-weight:600;color:var(--text);background:var(--tile2);cursor:pointer}
+.btn.primary{background:var(--blue);color:#fff}
+#thrustBtn{padding:24px 8px;font-size:18px;touch-action:none;border-radius:18px}
+#thrustBtn.on{background:#0062cc}
+.btn.cargo.on{background:var(--orange);color:#000}
+.panel{background:var(--tile);border-radius:14px;padding:12px 14px;display:flex;flex-direction:column;gap:10px}
+.sl{display:grid;grid-template-columns:112px 1fr 38px;align-items:center;gap:10px;font-size:13px}
+.sl .name{line-height:1.3;font-weight:600}
+.sl .name small{color:var(--sub);font-size:11px;display:block;font-weight:400}
+.sl input{width:100%;accent-color:var(--blue)}
+.sl .num{text-align:right;font-weight:600;font-variant-numeric:tabular-nums}
+.presets{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.presets button{appearance:none;border:0;padding:10px 4px;border-radius:10px;background:var(--tile2);color:var(--text);font:inherit;font-size:13px;font-weight:600;cursor:pointer}
+.note{font-size:13px;line-height:1.6;color:#d1d1d6;min-height:1.6em}
+.result{background:var(--tile);border-radius:14px;padding:10px 12px;font-size:13px;line-height:1.7;color:#d1d1d6}
+.result .ttl{font-size:11px;color:var(--sub);letter-spacing:.04em}
+.result .rs{display:grid;grid-template-columns:repeat(3,1fr);text-align:center;margin-top:4px}
+.result .rs b{display:block;font-size:18px;color:var(--text);font-variant-numeric:tabular-nums}
+.sensorLink{display:block;text-align:center;padding:14px;border-radius:14px;background:var(--tile);color:var(--blue);font-weight:600;font-size:15px;text-decoration:none}
+.hidden{display:none!important}
+/* スライドに埋め込むとき（?embed=1） */
+.embed header,.embed .guide,.embed .sensorLink{display:none}
+.embed .app{padding-top:58px}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>ドローンを浮かせよう</h1>
+    <p>フィードバック制御を体験する</p>
+  </header>
+
+  <div class="seg">
+    <button class="tab active" data-mode="manual">手動</button>
+    <button class="tab" data-mode="timer">タイマー</button>
+    <button class="tab" data-mode="auto">自動</button>
+    <button class="tab" data-mode="tune">調整</button>
+  </div>
+
+  <div class="guide" id="guide"></div>
+
+  <canvas id="sky"></canvas>
+
+  <div class="stats">
+    <div class="stat"><div class="l">高さ</div><div class="v" id="stH">0.0 m</div></div>
+    <div class="stat"><div class="l">目標とのズレ</div><div class="v" id="stE">+5.0 m</div></div>
+    <div class="stat"><div class="l">経過時間</div><div class="v" id="stT">0.0 秒</div></div>
+  </div>
+
+  <div class="think hidden" id="think"></div>
+
+  <!-- 手動モードの操作 -->
+  <div id="ctlManual" style="display:flex;flex-direction:column;gap:8px">
+    <button class="btn primary" id="thrustBtn">長押しで上昇</button>
+    <div class="row">
+      <button class="btn" data-gust>突風</button>
+      <button class="btn cargo" data-cargo>荷物</button>
+      <button class="btn" data-reset>やり直し</button>
+    </div>
+  </div>
+
+  <!-- タイマー・自動・調整モードの操作 -->
+  <div id="ctlAuto" class="row hidden">
+    <button class="btn primary" id="startBtn">スタート</button>
+    <button class="btn" data-gust>突風</button>
+    <button class="btn cargo" data-cargo>荷物</button>
+    <button class="btn" data-reset>地面へ</button>
+  </div>
+
+  <canvas id="graph"></canvas>
+
+  <div id="tunePanel" class="panel hidden">
+    <div class="sl"><div class="name">P　ズレに比例<small>ズレが大きいほど強く</small></div><input type="range" id="kp" min="0" max="30" step="0.5"><div class="num" id="kpV"></div></div>
+    <div class="sl"><div class="name">I　ズレの積み重ね<small>残ったズレを消す</small></div><input type="range" id="ki" min="0" max="10" step="0.5"><div class="num" id="kiV"></div></div>
+    <div class="sl"><div class="name">D　ブレーキ<small>速すぎると弱める</small></div><input type="range" id="kd" min="0" max="10" step="0.5"><div class="num" id="kdV"></div></div>
+    <div class="sl"><div class="name">目標の高さ</div><input type="range" id="tg" min="2" max="8" step="0.5"><div class="num" id="tgV"></div></div>
+    <div class="presets">
+      <button data-preset="good">ちょうどいい</button>
+      <button data-preset="noI">I なし</button>
+      <button data-preset="weakD">ブレーキ弱め</button>
+      <button data-preset="noD">ブレーキなし</button>
+    </div>
+    <div class="note" id="note"></div>
+  </div>
+
+  <div class="result hidden" id="result"></div>
+
+  <a class="sensorLink" href="sensors.html">スマホのセンサも体験する</a>
+</div>
+
+<script>
+// ===== 物理パラメータ =====
+const G = 9.8;        // 重力加速度 [m/s^2]
+const DRAG = 0.6;     // 空気抵抗
+const TAU = 0.15;     // モーターの反応の遅れ [s]
+const UMAX = 20;      // モーター最大出力（加速度換算）
+const U_MANUAL = 18;  // 手動で押しているときの出力
+const HMAX = 10;      // 天井の高さ [m]
+const DT = 1 / 120;   // 計算の刻み（1秒に120回）
+const BAND = 0.5;     // 目標ゾーンの幅 ±[m]
+const HOLD_NEED = 2;  // クリアに必要な滞在時間 [s]
+const WINDOW = 15;    // グラフの表示幅 [s]
+const CARGO_MASS = 1.3; // 荷物をのせたときの重さ（1.3倍）
+// タイマーモードの予定表：全力で T1 秒 → 止めて T2 秒 → 浮くだけの力（荷物なしの重さ用に計算済み）
+const TIMER_T1 = 1.0, TIMER_T2 = 0.645;
+
+const PRESETS = {
+  good:  {kp: 8, ki: 3, kd: 4, note: 'すばやく、行き過ぎず、ピタッと止まる。突風にもすぐ戻ります。'},
+  noI:   {kp: 6, ki: 0, kd: 4, note: '目標より下で止まってしまう。重力に負けた分のズレを、I（積み重ね）が埋めていたことが分かります。'},
+  weakD: {kp: 8, ki: 3, kd: 1, note: 'ブレーキが弱いと、行き過ぎては戻るをくり返しながら、少しずつ落ち着きます。'},
+  noD:   {kp: 8, ki: 4, kd: 0, note: 'ブレーキがないと、行き過ぎと戻りすぎをいつまでもくり返し、止まれません。'},
+};
+
+const GUIDES = {
+  manual: '<b>手動</b>　ボタン（または上の画面）を長押しするとプロペラが回って上昇し、離すと落ちます。<b>緑のゾーンに2秒とどまればクリア。</b>キーボードではスペースキーでも操作できます。',
+  timer:  '<b>タイマー</b>　「1秒全力、0.6秒止める、あとは浮くだけの力」と、<b>あらかじめ決めた予定どおり</b>にモーターを動かします。高さは<b>測っていません</b>。スタート後に「突風」や「荷物」を試してみてください。',
+  auto:   '<b>自動</b>　コンピュータが<b>高さを測り、目標とのズレを計算し、モーターの強さを決める</b>、を1秒間に120回くり返します。これがフィードバック制御です。グラフの灰色の線は、さっきのあなたの操縦です。',
+  tune:   '<b>調整</b>　コンピュータの「性格」を決める3つの数字（PID）を変えてみましょう。スライダーは動かしている間もすぐに反映されます。',
+};
+
+// ===== 状態 =====
+let mode = 'manual';
+let target = 5;
+let gains = {kp: 8, ki: 3, kd: 4};
+let pressing = false;
+let cargo = false;
+let s;
+let manualHist = null;               // 前回の手動操縦の記録（比較用）
+const best = {manual: null, timer: null, auto: null};
+let gustTimer = 0;
+let propAngle = 0;
+
+function resetState() {
+  s = {h: 0, v: 0, a: 0, u: 0, t: 0, integ: 0, inside: 0,
+       started: false, cleared: false, clearTime: null, hist: [], histTimer: 0};
+}
+resetState();
+
+// ===== シミュレーション 1ステップ =====
+function step() {
+  let u = 0;
+  if (mode === 'manual') {
+    if (pressing && !s.started) s.started = true;
+    u = pressing ? U_MANUAL : 0;
+  } else if (mode === 'timer') {
+    if (s.started) u = s.t < TIMER_T1 ? UMAX : s.t < TIMER_T1 + TIMER_T2 ? 0 : G;
+  } else if (s.started) {
+    const e = target - s.h;
+    const raw = gains.kp * e + gains.ki * s.integ - gains.kd * s.v;
+    // 出力が上限・下限に張り付いているときは積み重ねを止める（ワインドアップ対策）
+    if ((raw < UMAX && raw > 0) || (raw >= UMAX && e < 0) || (raw <= 0 && e > 0)) s.integ += e * DT;
+    u = Math.min(UMAX, Math.max(0, raw));
+  }
+  s.u = u;
+  s.a += (u - s.a) * DT / TAU;                                      // モーターは少し遅れて反応する
+  let acc = s.a / (cargo ? CARGO_MASS : 1) - G - DRAG * s.v;        // 荷物があると同じ力でも上がりにくい
+  if (s.h <= 0 && acc < 0) { acc = 0; s.v = Math.max(0, s.v); }
+  s.v += acc * DT;
+  s.h += s.v * DT;
+  if (s.h < 0) { s.h = 0; if (s.v < 0) s.v = 0; }
+  if (s.h > HMAX) { s.h = HMAX; if (s.v > 0) s.v = 0; }
+
+  if (!s.started) return;
+  s.t += DT;
+  if (Math.abs(s.h - target) <= BAND) {
+    s.inside += DT;
+    if (s.inside >= HOLD_NEED && !s.cleared) onClear();
+  } else {
+    s.inside = 0;
+  }
+  s.histTimer += DT;
+  if (s.histTimer >= 1 / 30) { s.histTimer = 0; s.hist.push({t: s.t, h: s.h, tg: target}); }
+}
+
+function onClear() {
+  s.cleared = true;
+  s.clearTime = s.t;
+  if (mode === 'manual') {
+    manualHist = s.hist.slice();
+    if (best.manual === null || s.t < best.manual) best.manual = s.t;
+  } else if (mode === 'auto' || mode === 'timer') {
+    if (best[mode] === null || s.t < best[mode]) best[mode] = s.t;
+  }
+  updateResult();
+}
+
+function gust() { s.v -= 5; gustTimer = 0.7; }
+
+// ===== 描画：空 =====
+const sky = document.getElementById('sky');
+const sctx = sky.getContext('2d');
+const graph = document.getElementById('graph');
+const gctx = graph.getContext('2d');
+const FONT = '-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP","Yu Gothic UI","Meiryo",sans-serif';
+
+function fitCanvas(c, ctx) {
+  const r = c.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  const w = Math.round(r.width * dpr), h = Math.round(r.height * dpr);
+  if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return {w: r.width, h: r.height};
+}
+
+function drawSky() {
+  const {w, h} = fitCanvas(sky, sctx);
+  const c = sctx;
+  const groundY = h - 22, topY = 12;
+  const yOf = m => groundY - (m / HMAX) * (groundY - topY);
+
+  const grad = c.createLinearGradient(0, 0, 0, h);
+  grad.addColorStop(0, '#05080f'); grad.addColorStop(1, '#16304f');
+  c.fillStyle = grad; c.fillRect(0, 0, w, h);
+
+  // 目盛り
+  c.font = `500 10px ${FONT}`; c.textAlign = 'right'; c.textBaseline = 'middle';
+  for (let m = 1; m <= HMAX; m++) {
+    const y = yOf(m);
+    c.strokeStyle = 'rgba(255,255,255,0.07)'; c.lineWidth = 1;
+    c.beginPath(); c.moveTo(28, y); c.lineTo(w, y); c.stroke();
+    c.fillStyle = 'rgba(235,235,245,0.45)'; c.fillText(m + 'm', 24, y);
+  }
+
+  // 目標ゾーン
+  const inside = Math.abs(s.h - target) <= BAND;
+  const yT = yOf(target + BAND), yB = yOf(target - BAND);
+  c.fillStyle = inside ? 'rgba(48,209,88,0.32)' : 'rgba(48,209,88,0.14)';
+  c.fillRect(28, yT, w - 28, yB - yT);
+  c.strokeStyle = 'rgba(48,209,88,0.9)'; c.lineWidth = 1; c.setLineDash([4, 4]);
+  c.beginPath(); c.moveTo(28, yOf(target)); c.lineTo(w, yOf(target)); c.stroke(); c.setLineDash([]);
+  c.fillStyle = '#30d158'; c.textAlign = 'right'; c.font = `600 11px ${FONT}`;
+  c.fillText('目標 ' + target.toFixed(1) + 'm', w - 8, yT - 8);
+
+  // 地面
+  c.fillStyle = '#1c1c1e'; c.fillRect(0, groundY, w, h - groundY);
+
+  // ドローン
+  const x = w * 0.56, y = yOf(s.h) - 10;
+  const power = Math.max(0, s.a) / UMAX;
+  c.strokeStyle = `rgba(255,255,255,${0.08 + power * 0.35})`; c.lineWidth = 1.5;
+  for (const dx of [-32, -26, 26, 32]) {
+    const len = 6 + power * 30, off = (performance.now() / 40) % 8;
+    c.beginPath(); c.moveTo(x + dx, y + 2 + off); c.lineTo(x + dx, y + 2 + off + len); c.stroke();
+  }
+  if (cargo) {
+    c.strokeStyle = 'rgba(235,235,245,0.6)'; c.lineWidth = 1;
+    c.beginPath(); c.moveTo(x - 5, y + 2); c.lineTo(x - 8, y + 12); c.moveTo(x + 5, y + 2); c.lineTo(x + 8, y + 12); c.stroke();
+    c.fillStyle = '#ff9f0a'; roundRect(c, x - 12, y + 12, 24, 16, 3); c.fill();
+  }
+  c.strokeStyle = '#e5e5ea'; c.lineWidth = 3; c.lineCap = 'round';
+  c.beginPath(); c.moveTo(x - 30, y - 6); c.lineTo(x + 30, y - 6); c.stroke();
+  c.fillStyle = '#f5f5f7'; roundRect(c, x - 14, y - 12, 28, 12, 5); c.fill();
+  c.fillStyle = '#0a84ff'; c.beginPath(); c.arc(x, y - 6, 2.5, 0, Math.PI * 2); c.fill();
+  propAngle += 0.15 + power * 1.2;
+  for (const px of [x - 30, x + 30]) {
+    c.fillStyle = '#e5e5ea'; c.fillRect(px - 1.5, y - 12, 3, 6);
+    const pw = 15 * Math.abs(Math.cos(propAngle));
+    c.fillStyle = `rgba(235,235,245,${0.35 + power * 0.4})`;
+    c.beginPath(); c.ellipse(px, y - 13, Math.max(2, pw), 2, 0, 0, Math.PI * 2); c.fill();
+  }
+
+  // 突風
+  if (gustTimer > 0) {
+    c.strokeStyle = 'rgba(255,255,255,0.75)'; c.lineWidth = 2;
+    for (const dx of [-50, 0, 50]) {
+      const ax = x + dx, ay = y - 64 + (0.7 - gustTimer) * 60;
+      c.beginPath(); c.moveTo(ax, ay); c.lineTo(ax, ay + 24); c.moveTo(ax - 6, ay + 17); c.lineTo(ax, ay + 24); c.lineTo(ax + 6, ay + 17); c.stroke();
+    }
+    c.fillStyle = '#f5f5f7'; c.font = `600 13px ${FONT}`; c.textAlign = 'left'; c.fillText('突風', 36, topY + 14);
+  }
+
+  // 安定ゲージ
+  if (s.started && !s.cleared) {
+    const gw = 110, gx = w - gw - 12, gy = topY + 8;
+    c.fillStyle = 'rgba(235,235,245,0.6)'; c.font = `500 10px ${FONT}`; c.textAlign = 'left';
+    c.fillText('ゾーンに滞在', gx, gy + 4);
+    c.fillStyle = 'rgba(255,255,255,0.15)'; roundRect(c, gx, gy + 12, gw, 4, 2); c.fill();
+    c.fillStyle = '#30d158'; roundRect(c, gx, gy + 12, Math.max(4, gw * Math.min(1, s.inside / HOLD_NEED)), 4, 2); c.fill();
+  }
+
+  // メッセージ
+  if (!s.started) {
+    banner(c, w, h, mode === 'manual' ? '長押しでスタート' : 'スタートを押してください',
+           mode === 'manual' ? '緑のゾーンに2秒とどまればクリア' : mode === 'timer' ? '決めた予定どおりに動かします' : 'コンピュータが操縦します');
+  } else if (s.cleared && s.t - s.clearTime < 3) {
+    banner(c, w, h, 'クリア　' + s.clearTime.toFixed(1) + '秒', mode === 'manual' ? '次は「タイマー」を試してみよう' : mode === 'timer' ? 'では、突風や荷物には？' : '');
+  }
+}
+
+function banner(c, w, h, big, small) {
+  const bw = 240, bh = small ? 56 : 40, by = h * 0.62 - 28;
+  c.fillStyle = 'rgba(28,28,30,0.88)'; roundRect(c, w / 2 - bw / 2, by, bw, bh, 14); c.fill();
+  c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.fillStyle = '#f5f5f7'; c.font = `700 17px ${FONT}`; c.fillText(big, w / 2, by + (small ? 20 : bh / 2));
+  if (small) { c.font = `400 11px ${FONT}`; c.fillStyle = '#8e8e93'; c.fillText(small, w / 2, by + 40); }
+}
+
+function roundRect(c, x, y, w, h, r) {
+  c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r);
+  c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath();
+}
+
+// ===== 描画：グラフ =====
+function drawGraph() {
+  const {w, h} = fitCanvas(graph, gctx);
+  const c = gctx;
+  c.fillStyle = '#1c1c1e'; c.fillRect(0, 0, w, h);
+  const L = 32, R = 10, T = 22, B = 18;
+  const t1 = Math.max(WINDOW, s.t), t0 = t1 - WINDOW;
+  const xOf = t => L + (t - t0) / WINDOW * (w - L - R);
+  const yOf = m => T + (1 - m / HMAX) * (h - T - B);
+
+  c.font = `500 10px ${FONT}`; c.fillStyle = '#8e8e93'; c.textBaseline = 'middle'; c.textAlign = 'right';
+  for (const m of [0, 5, 10]) {
+    c.fillText(m + 'm', L - 5, yOf(m));
+    c.strokeStyle = '#2c2c2e'; c.lineWidth = 1; c.beginPath(); c.moveTo(L, yOf(m)); c.lineTo(w - R, yOf(m)); c.stroke();
+  }
+  c.textAlign = 'center';
+  for (let t = Math.ceil(t0 / 5) * 5; t <= t1; t += 5) c.fillText(t + 's', xOf(t), h - 8);
+  c.textAlign = 'left'; c.fillStyle = '#f5f5f7'; c.font = `600 11px ${FONT}`;
+  c.fillText('高さの変化', L, 11);
+
+  const pts = s.hist.length ? s.hist : [{t: 0, tg: target}];
+  c.strokeStyle = 'rgba(48,209,88,0.8)'; c.setLineDash([4, 4]); c.lineWidth = 1;
+  c.beginPath(); c.moveTo(L, yOf(pts[0].tg));
+  for (const p of pts) if (p.t >= t0) c.lineTo(xOf(p.t), yOf(p.tg));
+  c.lineTo(w - R, yOf(target)); c.stroke(); c.setLineDash([]);
+
+  let legendX = w - R;
+  c.textAlign = 'right'; c.font = `500 10px ${FONT}`;
+  if ((mode === 'auto' || mode === 'timer') && manualHist) {
+    drawLine(c, manualHist, t0, xOf, yOf, '#8e8e93');
+    c.fillStyle = '#8e8e93'; c.fillText('あなた', legendX, 11); legendX -= 44;
+  }
+  drawLine(c, s.hist, t0, xOf, yOf, '#0a84ff');
+  c.fillStyle = '#0a84ff';
+  c.fillText(mode === 'manual' ? 'あなた' : mode === 'timer' ? 'タイマー' : 'コンピュータ', legendX, 11);
+}
+
+function drawLine(c, hist, t0, xOf, yOf, color) {
+  c.strokeStyle = color; c.lineWidth = 2; c.lineJoin = 'round'; c.beginPath();
+  let first = true;
+  for (const p of hist) {
+    if (p.t < t0 || p.t > t0 + WINDOW) continue;
+    if (first) { c.moveTo(xOf(p.t), yOf(p.h)); first = false; } else c.lineTo(xOf(p.t), yOf(p.h));
+  }
+  c.stroke();
+}
+
+// ===== 数値表示 =====
+const $ = id => document.getElementById(id);
+function updateStats() {
+  $('stH').textContent = s.h.toFixed(1) + ' m';
+  const e = target - s.h;
+  $('stE').textContent = (e >= 0 ? '+' : '') + e.toFixed(1) + ' m';
+  $('stT').textContent = s.t.toFixed(1) + ' 秒';
+  if (mode === 'manual') return;
+  const pct = Math.round(s.u / UMAX * 100);
+  if (mode === 'timer') {
+    const phase = s.t < TIMER_T1 ? '全力で上昇' : s.t < TIMER_T1 + TIMER_T2 ? 'いったん止める' : '浮くだけの力';
+    $('think').innerHTML = s.started ? `予定表：${phase}　モーター <b>${pct}%</b>　（高さは見ていない）` : 'タイマーは待機中';
+  } else {
+    const dir = e > BAND ? '目標より低い → 強めに' : e < -BAND ? '目標より高い → 弱めに' : 'ちょうどいい → キープ';
+    $('think').innerHTML = s.started ? `コンピュータの判断：${dir}　モーター <b>${pct}%</b>` : 'コンピュータは待機中';
+  }
+}
+
+function updateResult() {
+  const r = $('result');
+  if (best.manual === null && best.timer === null && best.auto === null) { r.classList.add('hidden'); return; }
+  r.classList.remove('hidden');
+  const fmt = v => v === null ? '—' : v.toFixed(1) + '秒';
+  r.innerHTML = `<div class="ttl">クリアまでの時間</div><div class="rs">
+    <div>あなた<b>${fmt(best.manual)}</b></div><div>タイマー<b>${fmt(best.timer)}</b></div><div>自動<b>${fmt(best.auto)}</b></div></div>`;
+}
+
+// ===== モード切替 =====
+function setMode(m) {
+  mode = m;
+  document.querySelectorAll('.tab').forEach(b => b.classList.toggle('active', b.dataset.mode === m));
+  $('guide').innerHTML = GUIDES[m];
+  $('ctlManual').classList.toggle('hidden', m !== 'manual');
+  $('ctlAuto').classList.toggle('hidden', m === 'manual');
+  $('tunePanel').classList.toggle('hidden', m !== 'tune');
+  $('think').classList.toggle('hidden', m === 'manual');
+  if (m !== 'tune') { target = 5; applyGains(PRESETS.good); $('note').textContent = ''; }
+  syncSliders();
+  pressing = false; $('thrustBtn').classList.remove('on');
+  setCargo(false);
+  resetState();
+}
+
+function applyGains(p) { gains = {kp: p.kp, ki: p.ki, kd: p.kd}; }
+
+function syncSliders() {
+  $('kp').value = gains.kp; $('ki').value = gains.ki; $('kd').value = gains.kd; $('tg').value = target;
+  $('kpV').textContent = gains.kp; $('kiV').textContent = gains.ki; $('kdV').textContent = gains.kd;
+  $('tgV').textContent = target + 'm';
+}
+
+function setCargo(on) {
+  cargo = on;
+  document.querySelectorAll('[data-cargo]').forEach(b => { b.classList.toggle('on', cargo); b.textContent = cargo ? '荷物あり' : '荷物'; });
+}
+
+// ===== 入力 =====
+document.querySelectorAll('.tab').forEach(b => b.addEventListener('click', () => setMode(b.dataset.mode)));
+document.querySelectorAll('[data-gust]').forEach(b => b.addEventListener('click', gust));
+document.querySelectorAll('[data-reset]').forEach(b => b.addEventListener('click', resetState));
+document.querySelectorAll('[data-cargo]').forEach(b => b.addEventListener('click', () => setCargo(!cargo)));
+$('startBtn').addEventListener('click', () => { resetState(); s.started = true; });
+
+function press(on) {
+  if (mode !== 'manual') return;
+  pressing = on;
+  $('thrustBtn').classList.toggle('on', on);
+}
+for (const el of [$('thrustBtn'), sky]) {
+  el.addEventListener('pointerdown', e => { e.preventDefault(); if (el.setPointerCapture) el.setPointerCapture(e.pointerId); press(true); });
+  el.addEventListener('pointerup', () => press(false));
+  el.addEventListener('pointercancel', () => press(false));
+  el.addEventListener('lostpointercapture', () => press(false));
+  el.addEventListener('contextmenu', e => e.preventDefault());
+}
+window.addEventListener('keydown', e => { if (e.code === 'Space') { e.preventDefault(); press(true); } });
+window.addEventListener('keyup', e => { if (e.code === 'Space') press(false); });
+window.addEventListener('blur', () => press(false));
+
+for (const k of ['kp', 'ki', 'kd']) {
+  $(k).addEventListener('input', () => { gains[k] = parseFloat($(k).value); $(k + 'V').textContent = gains[k]; $('note').textContent = ''; });
+}
+$('tg').addEventListener('input', () => { target = parseFloat($('tg').value); $('tgV').textContent = target + 'm'; s.inside = 0; });
+document.querySelectorAll('[data-preset]').forEach(b => b.addEventListener('click', () => {
+  const p = PRESETS[b.dataset.preset];
+  applyGains(p); syncSliders(); $('note').textContent = p.note;
+  resetState(); s.started = true;
+}));
+
+// ===== メインループ =====
+let last = performance.now(), acc = 0;
+function loop(now) {
+  const dt = Math.min(0.1, (now - last) / 1000); last = now;
+  acc += dt;
+  while (acc >= DT) { step(); acc -= DT; }
+  if (gustTimer > 0) gustTimer = Math.max(0, gustTimer - dt);
+  drawSky(); drawGraph(); updateStats();
+  requestAnimationFrame(loop);
+}
+
+// ===== スライドへの埋め込み用 =====
+const params = new URLSearchParams(location.search);
+if (params.get('embed')) document.body.classList.add('embed');
+// スライド側から操作できるようにする
+window.addEventListener('message', e => {
+  const d = e.data;
+  if (!d) return;
+  if (d.type === 'setMode' && GUIDES[d.mode] && d.mode !== mode) setMode(d.mode);
+  if (d.type === 'gust') gust();
+  if (d.type === 'cargo') setCargo(!!d.on);
+  if (d.type === 'preset' && PRESETS[d.name]) {
+    if (mode !== 'tune') setMode('tune');
+    document.querySelector(`[data-preset="${d.name}"]`).click();
+  }
+});
+// ゲームを操作中でも ← → / PageUp / PageDown でスライドをめくれるようにする
+if (window.parent !== window) {
+  window.addEventListener('keydown', e => {
+    if (['ArrowRight', 'ArrowLeft', 'PageDown', 'PageUp'].includes(e.key)) {
+      e.preventDefault();
+      window.parent.postMessage({type: 'nav', key: e.key}, '*');
+    }
+  });
+}
+
+setMode(GUIDES[params.get('mode')] ? params.get('mode') : 'manual');
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
